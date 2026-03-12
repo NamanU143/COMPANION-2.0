@@ -1,0 +1,167 @@
+/* Reset */
+body, html {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background-color: transparent !important;
+    font-family: 'Inter', sans-serif;
+}
+
+/* Draggable Region */
+.cube-face {
+    width: 120px;
+    height: 120px;
+    background-color: #1a1a1a;
+    border-radius: 20px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    border: 2px solid #333;
+    -webkit-app-region: drag; /* Makes the frameless window draggable */
+    cursor: grab;
+    transition: all 0.3s ease;
+}
+
+.cube-face:active {
+    cursor: grabbing;
+}
+
+/* Eyes */
+.eyes {
+    display: flex;
+    gap: 21px; /* Reduced by 30% from 30px */
+    -webkit-app-region: no-drag; /* Makes eyes clickable instead of draggable */
+    cursor: pointer;
+}
+
+.eye {
+    width: 30px;
+    height: 30px;
+    background-color: #00ffcc;
+    border-radius: 6px;
+    box-shadow: 0 0 10px #00ffcc;
+    transition: all 0.2s ease;
+}
+
+/* Listening State Animation (Emo bot focused look) */
+.listening .eye {
+    background-color: #00e5ff; /* Cyan focused color */
+    box-shadow: 0 0 12px #00e5ff;
+    height: 12px; /* Squinted/focused eyes */
+    border-radius: 4px; /* Slightly sharper styling */
+    animation: emo-listen 1.5s infinite alternate ease-in-out;
+}
+
+/* Speaking State Animation */
+.speaking .eye {
+    animation: pulse-y 0.3s infinite alternate;
+}
+
+/* Base Blinking (used via JS) */
+.blinking .eye {
+    height: 2px !important;
+    margin-top: 14px !important;
+    transition: height 0.1s ease, margin-top 0.1s ease;
+}
+
+/* === EMOTIONS === */
+
+.happy .eye {
+    background-color: #ffcc00;
+    box-shadow: 0 0 15px #ffcc00;
+    border-radius: 50% 50% 10% 10%; /* Arch shape */
+    height: 20px;
+    margin-top: -5px;
+}
+
+.sad .eye {
+    background-color: #3399ff;
+    box-shadow: 0 0 15px #3399ff;
+    border-radius: 10% 10% 50% 50%;
+    transform: rotate(-10deg);
+    height: 20px;
+}
+.sad .left-eye { transform: rotate(10deg); }
+.sad .right-eye { transform: rotate(-10deg); }
+
+.angry .eye {
+    background-color: #ff3333;
+    box-shadow: 0 0 15px #ff3333;
+    border-radius: 10%;
+    height: 15px;
+    margin-top: 5px;
+}
+.angry .left-eye { transform: rotate(20deg); }
+.angry .right-eye { transform: rotate(-20deg); }
+
+.surprised .eye {
+    background-color: #ffffff;
+    box-shadow: 0 0 20px #ffffff;
+    height: 38px;
+    width: 38px;
+    border-radius: 50%;
+}
+
+.thinking .eye {
+    background-color: #cc66ff;
+    box-shadow: 0 0 15px #cc66ff;
+    height: 20px;
+}
+.thinking .left-eye { transform: translateY(-5px); }
+.thinking .right-eye { transform: translateY(5px); }
+
+/* Hover effect on eyes to indicate clickability (handled in JS later) */
+.cube-face.idle .eyes:hover .eye {
+    transform: scale(1.1);
+}
+
+@keyframes blink {
+    0% { opacity: 1; }
+    100% { opacity: 0.5; }
+}
+
+@keyframes emo-listen {
+    0% { opacity: 0.8; transform: scaleY(1); }
+    100% { opacity: 1; transform: scaleY(1.2); }
+}
+
+@keyframes pulse-y {
+    0% { transform: scaleY(1); }
+    100% { transform: scaleY(1.3); }
+}
+
+/* Control Buttons (Minimize) */
+.control-btn {
+    position: absolute;
+    top: 5px;
+    right: 10px;
+    background: transparent;
+    border: none;
+    color: #666;
+    font-size: 16px;
+    cursor: pointer;
+    -webkit-app-region: no-drag;
+    opacity: 0;
+    transition: opacity 0.3s ease, color 0.3s ease;
+}
+
+.cube-face:hover .control-btn {
+    opacity: 1;
+}
+
+.control-btn:hover {
+    color: #fff;
+}
+
+/* Status text (hidden initially) */
+.status-indicator {
+    display: none;
+    -webkit-app-region: no-drag;
+}
