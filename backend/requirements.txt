@@ -1,6 +1,9 @@
 fastapi
 uvicorn
 google-genai
-edge-tts
 pydantic
 python-dotenv
+piper-tts
+sounddevice
+numpy
+scipy

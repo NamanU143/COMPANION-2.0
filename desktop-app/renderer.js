@@ -187,7 +187,13 @@ async function sendToBackend(message = null, audioBase64 = null) {
         const data = await response.json();
         console.log('AI Response:', data.text);
         
-        playAudioWithEmotions(data.audio_url, data.segments, data.text.length);
+        // Since audio playback is driven fully by the Python backend via `sounddevice`
+        // we no longer have an `audio_url` or an `<audio>` element duration event to tap into.
+        // We will mock the duration based on an estimated words-per-minute or raw character length.
+        
+        // Roughly ~15 characters per second of audio for a fast robotic voice (or 60ms per char)
+        const msPerChar = 60; 
+        playAudioWithEmotions(data.segments, data.text.length, msPerChar);
     } catch (error) {
         console.error('Error sending message to backend:', error);
     }
@@ -196,7 +202,7 @@ async function sendToBackend(message = null, audioBase64 = null) {
 // Global reference to timeouts so they can be cleared
 let emotionTimeouts = [];
 
-function playAudioWithEmotions(url, segments, totalLength) {
+function playAudioWithEmotions(segments, totalLength, msPerChar) {
     // Clear any previous timeouts
     emotionTimeouts.forEach(clearTimeout);
     emotionTimeouts = [];
@@ -204,36 +210,27 @@ function playAudioWithEmotions(url, segments, totalLength) {
     // Reset face
     face.className = 'cube-face speaking'; // Base class + speaking pulse
     
-    // Add cache-busting query parameter
-    audioPlayer.src = `${url}?t=${new Date().getTime()}`;
-    
-    audioPlayer.onloadedmetadata = () => {
-        const totalDurationMs = audioPlayer.duration * 1000;
-        let cumulativeTime = 0;
+    // We simulate the duration of the entire audio
+    const totalDurationMs = totalLength * msPerChar;
+    let cumulativeTime = 0;
 
-        // Calculate time per character to distribute the segments
-        const msPerChar = totalDurationMs / totalLength;
+    segments.forEach((segment) => {
+        const duration = segment.text.length * msPerChar;
+        const emotion = segment.emotion.toLowerCase();
+        
+        // Schedule the emotion change
+        const timeout = setTimeout(() => {
+            // Keep base classes, then add the specific emotion
+            face.className = `cube-face speaking ${emotion}`;
+            console.log(`Setting emotion: ${emotion} for text: "${segment.text}"`);
+        }, cumulativeTime);
+        
+        emotionTimeouts.push(timeout);
+        cumulativeTime += duration;
+    });
 
-        segments.forEach((segment) => {
-            const duration = segment.text.length * msPerChar;
-            const emotion = segment.emotion.toLowerCase();
-            
-            // Schedule the emotion change
-            const timeout = setTimeout(() => {
-                // Keep base classes, then add the specific emotion
-                face.className = `cube-face speaking ${emotion}`;
-                console.log(`Setting emotion: ${emotion} for text: "${segment.text}"`);
-            }, cumulativeTime);
-            
-            emotionTimeouts.push(timeout);
-            cumulativeTime += duration;
-        });
-    };
-
-    audioPlayer.play();
-
-    // Remove speaking animation and emotions when audio finishes
-    audioPlayer.onended = () => {
+    // Remove speaking animation and emotions when simulated audio finishes
+    const endTimeout = setTimeout(() => {
         face.className = 'cube-face'; // Reset to idle
         emotionTimeouts.forEach(clearTimeout);
         emotionTimeouts = [];
@@ -241,5 +238,7 @@ function playAudioWithEmotions(url, segments, totalLength) {
         // Unmute VAD to listen for user again
         isMuted = false;
         console.log("VAD: Unmuted, listening for user again.");
-    };
+    }, totalDurationMs);
+    
+    emotionTimeouts.push(endTimeout);
 }

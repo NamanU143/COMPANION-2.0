@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -22,7 +22,9 @@ app.add_middleware(
     allow_headers=["*"],  # Allows all headers
 )
 
-# Ensure static directory exists
+# Note: Static mounting is technically no longer needed for audio playback 
+# since audio is played directly via sounddevice, but we'll leave it in
+# case the user wants to serve other static assets (like images) later.
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 if not os.path.exists(STATIC_DIR):
     os.makedirs(STATIC_DIR)
@@ -35,7 +37,7 @@ class ChatRequest(BaseModel):
     audio_base64: Optional[str] = None
 
 @app.post("/chat")
-async def chat_endpoint(request: ChatRequest):
+async def chat_endpoint(request: ChatRequest, background_tasks: BackgroundTasks):
     try:
         if request.audio_base64:
             user_message = transcribe_audio(request.audio_base64)
@@ -43,24 +45,22 @@ async def chat_endpoint(request: ChatRequest):
         else:
             user_message = request.message or ""
         
-        # 1. Get AI Response (now a list of segment dicts)
+        # 1. Get AI Response
         ai_segments = generate_ai_response(user_message)
         
         # Combine all text segments into one string for TTS
         full_text = " ".join([seg["text"] for seg in ai_segments])
         print(f"AI Response: {full_text}")
         
-        # 2. Convert to Speech
-        audio_filename = "response.wav"
-        audio_filepath = os.path.join(STATIC_DIR, audio_filename)
+        # 2. Trigger audio playback in the background so the UI doesn't hang
+        #    We pass the 'full_text' to the background task which will stream via `sounddevice`.
+        background_tasks.add_task(generate_audio, full_text, "")
         
-        await generate_audio(full_text, audio_filepath)
-        
-        # 3. Return JSON response containing audio mapping + segments
+        # 3. Return JSON response immediately
         return {
-            "text": full_text, # Keep for backwards compatibility/logging
+            "text": full_text,
             "segments": ai_segments,
-            "audio_url": f"http://127.0.0.1:8000/static/{audio_filename}"
+            "audio_url": None # No longer returning an audio URL as playback is instantaneous on the host
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

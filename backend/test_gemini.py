@@ -9,7 +9,7 @@ def test_gemini():
     
     if not api_key:
         # Fallback to the one you pasted in ai_service.py if .env isn't set
-        api_key = "AIzaSyBnCpnCFb7XV-qAJx6vfIXHNi6eiKYTJSQ" 
+        api_key = os.environ.get("GEMINI_API_KEY")
         print("GEMINI_API_KEY not found in .env, using fallback key.")
     
     print(f"Using API Key starting with: {api_key[:10]}...")
