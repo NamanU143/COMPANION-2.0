@@ -90,3 +90,9 @@ async def generate_audio(text: str, output_filepath: str):
     We ignore the output_filepath!
     """
     speak(text)
+
+# To do : 
+# 1. Implement proper error handling and logging as needed for production use.
+# 2. Update the tts service api with the pretrained model and ruunning it in memory for sub-200ms latency.
+# 3. Ensure that the model files are included in the deployment package and that the paths are correct.
+# 4. Update the notebook for new RND related to finetuining the model for the emo bot voice and the new audio processing pipeline.
