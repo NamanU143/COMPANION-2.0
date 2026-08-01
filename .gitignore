@@ -24,6 +24,7 @@ share/python-wheels/
 .env
 .venv
 venv/
+venv_parler/
 venv.bak/
 ENV/
 
@@ -49,5 +50,8 @@ desktop-app/out/
 backend/static/*.wav
 backend/static/*.mp3
 backend/static/*.ogg
+backend/static/tts_samples/
+# Local activity log (privacy: on-device only, never commit)
+backend/activity_log.jsonl
 __pycache__/
 .pytest_cache/

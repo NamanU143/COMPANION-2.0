@@ -3,7 +3,14 @@ uvicorn
 google-genai
 pydantic
 python-dotenv
-piper-tts
 sounddevice
 numpy
 scipy
+langdetect
+# Self-hosted TTS (Meta MMS-TTS via transformers).
+# torch: CPU build is enough for MMS. Install with:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+torch
+transformers
+# Self-hosted speech-to-text (Whisper large-v3). Runs on GPU if available, else CPU.
+faster-whisper

@@ -3,12 +3,13 @@ const path = require('path');
 
 function createWindow() {
     const win = new BrowserWindow({
-        width: 150,
-        height: 150,
+        width: 340,
+        height: 460,
         transparent: true,
         frame: false,
         alwaysOnTop: true,
         resizable: false,
+        hasShadow: false,
         webPreferences: {
             nodeIntegration: true,
             contextIsolation: false // For MVP simplicity; normally use preload scripts
@@ -20,13 +21,14 @@ function createWindow() {
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 
     win.loadFile('index.html');
-    
-    // Open DevTools for debugging microphone issues (can remove later)
-    win.webContents.openDevTools({ mode: 'detach' });
-    
-    ipcMain.on('minimize-window', () => {
-        win.minimize();
-    });
+
+    // DevTools only when explicitly requested (set MILO_DEVTOOLS=1).
+    if (process.env.MILO_DEVTOOLS) {
+        win.webContents.openDevTools({ mode: 'detach' });
+    }
+
+    ipcMain.on('minimize-window', () => win.minimize());
+    ipcMain.on('close-window', () => win.close());
 }
 
 app.whenReady().then(() => {

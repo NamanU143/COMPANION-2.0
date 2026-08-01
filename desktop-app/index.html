@@ -3,21 +3,50 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Companion</title>
+    <title>Milo</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="cube-face" id="assistant-face">
-        <button id="minimize-btn" class="control-btn" title="Minimize">—</button>
-        <div class="eyes">
-            <div class="eye left-eye"></div>
-            <div class="eye right-eye"></div>
+    <div class="panel" id="panel" data-state="listening">
+        <!-- Title bar (drag handle + window controls) -->
+        <div class="titlebar">
+            <span class="title">Milo</span>
+            <div class="win-controls">
+                <button id="mute-btn" class="win-btn" title="Mute mic">🎙️</button>
+                <button id="minimize-btn" class="win-btn" title="Minimize">—</button>
+                <button id="close-btn" class="win-btn" title="Close">✕</button>
+            </div>
         </div>
-        <div class="status-indicator" id="status-indicator"></div>
-    </div>
-    
-    <!-- Audio playback is now handled server-side via sounddevice -->
 
+        <!-- Avatar: reactive aura + animated pixel fox -->
+        <div class="avatar-wrap">
+            <div class="aura" id="aura"></div>
+            <canvas id="fox-canvas" class="fox" width="44" height="44"></canvas>
+        </div>
+
+        <!-- Status pill -->
+        <div class="status" id="status">Listening…</div>
+
+        <!-- Live captions -->
+        <div class="captions">
+            <div class="caption user" id="caption-user"></div>
+            <div class="caption milo" id="caption-milo"></div>
+        </div>
+
+        <!-- Voice selector -->
+        <div class="voice-row">
+            <span class="voice-label">Voice</span>
+            <select id="voice-select" class="voice-select"></select>
+        </div>
+
+        <!-- Text input fallback -->
+        <form class="composer" id="composer">
+            <input id="text-input" type="text" placeholder="Type to Milo…" autocomplete="off" />
+            <button type="submit" class="send-btn" title="Send">➤</button>
+        </form>
+    </div>
+
+    <script src="fox.js"></script>
     <script src="renderer.js"></script>
 </body>
 </html>

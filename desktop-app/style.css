@@ -1,167 +1,243 @@
-/* Reset */
+/* ===================================================================
+   Milo — desktop companion UI
+   =================================================================== */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
 body, html {
-    margin: 0;
-    padding: 0;
-    width: 100%;
-    height: 100%;
+    width: 100%; height: 100%;
     overflow: hidden;
-    background-color: transparent !important;
-    font-family: 'Inter', sans-serif;
+    background: transparent !important;
+    font-family: 'Segoe UI', 'Inter', system-ui, sans-serif;
+    user-select: none;
 }
 
-/* Draggable Region */
-.cube-face {
-    width: 120px;
-    height: 120px;
-    background-color: #1a1a1a;
-    border-radius: 20px;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
+:root {
+    --accent: #00e5ff;          /* driven per state via JS/CSS */
+    --mouth-open: 0;            /* 0..1 lip-sync amplitude */
+}
+
+/* ---- Panel (glass card) ------------------------------------------ */
+.panel {
+    position: absolute; inset: 8px;
+    display: flex; flex-direction: column;
     align-items: center;
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    border: 2px solid #333;
-    -webkit-app-region: drag; /* Makes the frameless window draggable */
-    cursor: grab;
-    transition: all 0.3s ease;
+    background: linear-gradient(160deg, rgba(24,26,38,0.92), rgba(14,15,22,0.94));
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 24px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.55),
+                0 0 0 1px rgba(255,255,255,0.03) inset,
+                0 0 40px -10px var(--accent);
+    -webkit-app-region: drag;
+    transition: box-shadow 0.4s ease;
+    backdrop-filter: blur(18px);
 }
 
-.cube-face:active {
-    cursor: grabbing;
+/* State accent colors */
+.panel[data-state="listening"] { --accent: #00e5ff; }
+.panel[data-state="thinking"]  { --accent: #c07bff; }
+.panel[data-state="speaking"]  { --accent: #37e39b; }
+.panel[data-state="muted"]     { --accent: #6b7280; }
+
+/* ---- Title bar --------------------------------------------------- */
+.titlebar {
+    width: 100%; height: 34px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 12px;
 }
-
-/* Eyes */
-.eyes {
-    display: flex;
-    gap: 21px; /* Reduced by 30% from 30px */
-    -webkit-app-region: no-drag; /* Makes eyes clickable instead of draggable */
-    cursor: pointer;
+.title {
+    font-size: 13px; font-weight: 600; letter-spacing: 0.4px;
+    color: var(--accent);
+    text-shadow: 0 0 12px var(--accent);
 }
-
-.eye {
-    width: 30px;
-    height: 30px;
-    background-color: #00ffcc;
-    border-radius: 6px;
-    box-shadow: 0 0 10px #00ffcc;
-    transition: all 0.2s ease;
+.win-controls { display: flex; gap: 4px; -webkit-app-region: no-drag; }
+.win-btn {
+    width: 22px; height: 22px;
+    border: none; border-radius: 6px;
+    background: transparent; color: #8b90a0;
+    font-size: 12px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.2s, color 0.2s;
 }
+.win-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
+#mute-btn.muted { color: #ff5c6c; }
 
-/* Listening State Animation (Emo bot focused look) */
-.listening .eye {
-    background-color: #00e5ff; /* Cyan focused color */
-    box-shadow: 0 0 12px #00e5ff;
-    height: 12px; /* Squinted/focused eyes */
-    border-radius: 4px; /* Slightly sharper styling */
-    animation: emo-listen 1.5s infinite alternate ease-in-out;
+/* ---- Avatar + aura ---------------------------------------------- */
+.avatar-wrap {
+    position: relative;
+    width: 170px; height: 170px;
+    margin: 10px 0 4px;
+    display: flex; align-items: center; justify-content: center;
+    -webkit-app-region: no-drag;
 }
-
-/* Speaking State Animation */
-.speaking .eye {
-    animation: pulse-y 0.3s infinite alternate;
-}
-
-/* Base Blinking (used via JS) */
-.blinking .eye {
-    height: 2px !important;
-    margin-top: 14px !important;
-    transition: height 0.1s ease, margin-top 0.1s ease;
-}
-
-/* === EMOTIONS === */
-
-.happy .eye {
-    background-color: #ffcc00;
-    box-shadow: 0 0 15px #ffcc00;
-    border-radius: 50% 50% 10% 10%; /* Arch shape */
-    height: 20px;
-    margin-top: -5px;
-}
-
-.sad .eye {
-    background-color: #3399ff;
-    box-shadow: 0 0 15px #3399ff;
-    border-radius: 10% 10% 50% 50%;
-    transform: rotate(-10deg);
-    height: 20px;
-}
-.sad .left-eye { transform: rotate(10deg); }
-.sad .right-eye { transform: rotate(-10deg); }
-
-.angry .eye {
-    background-color: #ff3333;
-    box-shadow: 0 0 15px #ff3333;
-    border-radius: 10%;
-    height: 15px;
-    margin-top: 5px;
-}
-.angry .left-eye { transform: rotate(20deg); }
-.angry .right-eye { transform: rotate(-20deg); }
-
-.surprised .eye {
-    background-color: #ffffff;
-    box-shadow: 0 0 20px #ffffff;
-    height: 38px;
-    width: 38px;
+.aura {
+    position: absolute; inset: 0;
     border-radius: 50%;
+    background: radial-gradient(circle, var(--accent) 0%, transparent 68%);
+    opacity: 0.28;
+    filter: blur(4px);
+    animation: aura-pulse 2.6s ease-in-out infinite;
+}
+.panel[data-state="thinking"] .aura { animation: aura-spin 1.1s linear infinite; opacity: 0.35; }
+.panel[data-state="speaking"] .aura { animation: none; opacity: calc(0.25 + var(--mouth-open) * 0.5); transform: scale(calc(1 + var(--mouth-open) * 0.06)); }
+
+@keyframes aura-pulse { 0%,100% { transform: scale(0.96); opacity: 0.22; } 50% { transform: scale(1.04); opacity: 0.34; } }
+@keyframes aura-spin  { 0% { transform: rotate(0deg) scale(1); } 100% { transform: rotate(360deg) scale(1); } }
+
+.fox {
+    position: relative;
+    z-index: 1;
+    width: 150px; height: 150px;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    will-change: transform;
 }
 
-.thinking .eye {
-    background-color: #cc66ff;
-    box-shadow: 0 0 15px #cc66ff;
-    height: 20px;
+/* ---- Eyes -------------------------------------------------------- */
+.eyes {
+    position: absolute; top: 46px; left: 0; right: 0;
+    display: flex; justify-content: center; gap: 26px;
 }
-.thinking .left-eye { transform: translateY(-5px); }
-.thinking .right-eye { transform: translateY(5px); }
-
-/* Hover effect on eyes to indicate clickability (handled in JS later) */
-.cube-face.idle .eyes:hover .eye {
-    transform: scale(1.1);
+.eye {
+    position: relative;
+    width: 26px; height: 30px;
+    background: var(--accent);
+    border-radius: 46%;
+    box-shadow: 0 0 14px var(--accent);
+    transition: height 0.12s ease, width 0.18s ease, border-radius 0.18s ease, transform 0.18s ease, background 0.3s;
 }
-
-@keyframes blink {
-    0% { opacity: 1; }
-    100% { opacity: 0.5; }
+.pupil {
+    position: absolute; top: 50%; left: 50%;
+    width: 8px; height: 8px; border-radius: 50%;
+    background: rgba(6,10,16,0.55);
+    transform: translate(-50%, -50%);
+    transition: transform 0.2s ease, opacity 0.2s;
 }
+.avatar.blink .eye { height: 3px; }
+.avatar.blink .pupil { opacity: 0; }
 
-@keyframes emo-listen {
-    0% { opacity: 0.8; transform: scaleY(1); }
-    100% { opacity: 1; transform: scaleY(1.2); }
-}
-
-@keyframes pulse-y {
-    0% { transform: scaleY(1); }
-    100% { transform: scaleY(1.3); }
-}
-
-/* Control Buttons (Minimize) */
-.control-btn {
-    position: absolute;
-    top: 5px;
-    right: 10px;
-    background: transparent;
-    border: none;
-    color: #666;
-    font-size: 16px;
-    cursor: pointer;
-    -webkit-app-region: no-drag;
+/* ---- Eyebrows ---------------------------------------------------- */
+.brows {
+    position: absolute; top: 34px; left: 0; right: 0;
+    display: flex; justify-content: center; gap: 26px;
     opacity: 0;
-    transition: opacity 0.3s ease, color 0.3s ease;
+    transition: opacity 0.2s;
+}
+.brow {
+    width: 26px; height: 5px; border-radius: 4px;
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+    transition: transform 0.2s ease;
 }
 
-.cube-face:hover .control-btn {
-    opacity: 1;
+/* ---- Mouth (lip-sync) ------------------------------------------- */
+.mouth {
+    position: absolute; left: 50%; bottom: 30px;
+    transform: translateX(-50%);
+    width: 40px;
+    height: calc(6px + var(--mouth-open) * 26px);
+    background: var(--accent);
+    border-radius: 0 0 20px 20px;
+    box-shadow: 0 0 12px var(--accent);
+    transition: width 0.2s ease, border-radius 0.2s ease;
 }
 
-.control-btn:hover {
-    color: #fff;
+/* ===================== EMOTIONS ==================================== */
+.avatar[data-emotion="happy"]   .eye  { border-radius: 50% 50% 12% 12%; height: 20px; }
+.avatar[data-emotion="happy"]   .mouth{ border-radius: 0 0 22px 22px; width: 46px; }
+
+.avatar[data-emotion="sad"]     .brows{ opacity: 1; }
+.avatar[data-emotion="sad"]     .brow.left  { transform: rotate(16deg) translateY(-2px); }
+.avatar[data-emotion="sad"]     .brow.right { transform: rotate(-16deg) translateY(-2px); }
+.avatar[data-emotion="sad"]     .mouth{ border-radius: 20px 20px 0 0; height: calc(5px + var(--mouth-open) * 16px); }
+.avatar[data-emotion="sad"]     .eye  { height: 22px; }
+
+.avatar[data-emotion="angry"]   .brows{ opacity: 1; }
+.avatar[data-emotion="angry"]   .brow.left  { transform: rotate(-22deg) translateY(3px); }
+.avatar[data-emotion="angry"]   .brow.right { transform: rotate(22deg)  translateY(3px); }
+.avatar[data-emotion="angry"]   .eye  { height: 16px; border-radius: 20%; }
+
+.avatar[data-emotion="surprised"] .eye  { width: 30px; height: 30px; border-radius: 50%; }
+.avatar[data-emotion="surprised"] .mouth{ width: 22px; height: calc(16px + var(--mouth-open) * 20px); border-radius: 50%; }
+
+.avatar[data-emotion="thinking"] .brows{ opacity: 1; }
+.avatar[data-emotion="thinking"] .brow.left { transform: translateY(-3px); }
+.avatar[data-emotion="thinking"] .eye.right { transform: translateY(-4px); }
+.avatar[data-emotion="thinking"] .pupil     { transform: translate(2px, -3px); }
+
+/* State-driven eye behavior */
+.panel[data-state="listening"] .avatar[data-emotion="neutral"] .eye { height: 26px; }
+
+/* ---- Status pill ------------------------------------------------- */
+.status {
+    margin-top: 6px;
+    font-size: 12.5px; font-weight: 500; letter-spacing: 0.3px;
+    color: var(--accent);
+    opacity: 0.9;
+    display: flex; align-items: center; gap: 6px;
 }
 
-/* Status text (hidden initially) */
-.status-indicator {
-    display: none;
+/* ---- Captions ---------------------------------------------------- */
+.captions {
+    width: 100%; flex: 1;
+    padding: 10px 16px 4px;
+    display: flex; flex-direction: column; gap: 6px;
+    overflow: hidden;
     -webkit-app-region: no-drag;
 }
+.caption {
+    font-size: 12.5px; line-height: 1.35;
+    opacity: 0; transform: translateY(4px);
+    transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.caption.show { opacity: 1; transform: none; }
+.caption.user { color: #9aa0b0; }
+.caption.user::before { content: "You  "; color: #5b6070; font-size: 10px; }
+.caption.milo { color: #e8ecf5; }
+.caption.milo::before { content: "Milo  "; color: var(--accent); font-size: 10px; }
+
+/* ---- Voice selector ---------------------------------------------- */
+.voice-row {
+    width: 100%;
+    display: flex; align-items: center; gap: 8px;
+    padding: 2px 14px 0;
+    -webkit-app-region: no-drag;
+}
+.voice-label { font-size: 10px; color: #5b6070; text-transform: uppercase; letter-spacing: 0.5px; }
+.voice-select {
+    flex: 1;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    padding: 5px 8px;
+    color: #e8ecf5; font-size: 11.5px;
+    outline: none; cursor: pointer;
+}
+.voice-select:focus { border-color: var(--accent); }
+.voice-select option { background: #16181f; color: #e8ecf5; }
+
+/* ---- Composer ---------------------------------------------------- */
+.composer {
+    width: 100%;
+    display: flex; gap: 6px;
+    padding: 8px 12px 12px;
+    -webkit-app-region: no-drag;
+}
+#text-input {
+    flex: 1;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 8px 12px;
+    color: #e8ecf5; font-size: 12.5px;
+    outline: none;
+    transition: border 0.2s;
+}
+#text-input:focus { border-color: var(--accent); }
+#text-input::placeholder { color: #5b6070; }
+.send-btn {
+    width: 34px; border: none; border-radius: 12px;
+    background: var(--accent); color: #0b0d14;
+    font-size: 13px; cursor: pointer;
+    transition: filter 0.2s;
+}
+.send-btn:hover { filter: brightness(1.15); }

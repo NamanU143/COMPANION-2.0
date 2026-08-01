@@ -1,106 +1,227 @@
-import os
-import json
-import wave
+import re
+import asyncio
+import threading
+
 import numpy as np
 import sounddevice as sd
-from piper import PiperVoice
+import torch
 from scipy import signal
+from transformers import VitsModel, AutoTokenizer
+from langdetect import detect, DetectorFactory
 
-# Define model paths
-MODEL_DIR = os.path.join(os.path.dirname(__file__), "models")
-MODEL_PATH = os.path.join(MODEL_DIR, "en_US-danny-low.onnx")
-CONFIG_PATH = os.path.join(MODEL_DIR, "en_US-danny-low.onnx.json")
+# Make language detection deterministic across runs.
+DetectorFactory.seed = 0
 
-# In-memory global instance to ensure sub-200ms latency.
-# We initialize it as None and load it when needed (or on server startup).
-_piper_voice = None
+# ---------------------------------------------------------------------------
+# VOICE CONFIG  (Meta MMS-TTS — fully offline, self-hosted)
+# ---------------------------------------------------------------------------
+# Milo speaks with Meta's MMS-TTS VITS models, loaded directly into the server.
+# No internet, no API key. We auto-detect the reply's language and load the
+# matching model on first use (then keep it cached in memory).
+#
+# Models are downloaded once from the Hugging Face Hub to the local HF cache,
+# after which everything runs offline. Each model is ~145 MB.
+# ---------------------------------------------------------------------------
+MODEL_MAP = {
+    "en": "facebook/mms-tts-eng",  # English
+    "hi": "facebook/mms-tts-hin",  # Hindi
+    "mr": "facebook/mms-tts-mar",  # Marathi
+}
+DEFAULT_LANG = "en"
+
+# Devanagari Unicode block — used to tell Indian-language replies from English.
+_DEVANAGARI_RE = re.compile(r"[ऀ-ॿ]")
+
+# In-memory cache of loaded (model, tokenizer) per language, so each model is
+# loaded from disk only once. A lock keeps the lazy load thread-safe (playback
+# runs in worker threads).
+_models = {}
+_load_lock = threading.Lock()
 
 
-def get_piper_voice() -> PiperVoice:
-    """Loads the Piper ONNX model into memory globally as a singleton."""
-    global _piper_voice
-    if _piper_voice is None:
-        if not os.path.exists(MODEL_PATH) or not os.path.exists(CONFIG_PATH):
-            raise FileNotFoundError(
-                f"Piper model not found at {MODEL_PATH}. Did you download it?"
-            )
-        print(f"Loading Piper ONNX model from {MODEL_PATH}...")
-        _piper_voice = PiperVoice.load(MODEL_PATH, config_path=CONFIG_PATH)
-        print("Piper model loaded into memory.")
-    return _piper_voice
-
-
-def apply_robotic_texture(audio_array: np.ndarray, sample_rate: int) -> np.ndarray:
+def detect_language(text: str) -> str:
     """
-    Applies a lightweight audio manipulation to give the voice an "EMO bot" texture.
-    We'll do a slight pitch/speed increase by resampling, which makes it sound smaller,
-    more energetic, and slightly digital/robotic.
+    Decide which voice language to use for a reply. Milo only replies in
+    English, Hindi, or Marathi, so detection stays simple and robust:
+      - Any Devanagari script  -> Hindi or Marathi (langdetect picks between them)
+      - Otherwise              -> English
     """
-    # Speed up / Pitch up factor. 1.15x is usually a good sweet spot for a cute/robotic effect
-    # on a voice like danny-low without it becoming completely unintelligible chipmunk.
-    speed_factor = 1.15
-
-    # Calculate new length
-    new_length = int(len(audio_array) / speed_factor)
-
-    # Resample the audio array (this fundamentally shifts pitch and speed together,
-    # which sounds like a fast-talking little robot).
-    resampled_audio = signal.resample(audio_array, new_length)
-
-    # Optional: Add a very tiny bit of static or quantization noise for extra "robot" flavor
-    # noise = np.random.normal(0, 0.005, resampled_audio.shape)
-    # resampled_audio = resampled_audio + noise
-
-    # Ensure it stays within int16 bounds
-    return np.clip(resampled_audio, -32768, 32767).astype(np.int16)
+    if _DEVANAGARI_RE.search(text):
+        try:
+            lang = detect(text)
+        except Exception:
+            lang = "hi"
+        return "mr" if lang == "mr" else "hi"
+    return "en"
 
 
-def speak(text: str):
+def _get_model(lang: str):
+    """Lazily load and cache the (model, tokenizer) for a language."""
+    if lang not in MODEL_MAP:
+        lang = DEFAULT_LANG
+    if lang not in _models:
+        with _load_lock:
+            if lang not in _models:  # re-check inside the lock
+                model_id = MODEL_MAP[lang]
+                print(f"[TTS] Loading MMS model {model_id} ...")
+                model = VitsModel.from_pretrained(model_id)
+                model.eval()
+                tokenizer = AutoTokenizer.from_pretrained(model_id)
+                _models[lang] = (model, tokenizer)
+                print(f"[TTS] Loaded {model_id}.")
+    return _models[lang]
+
+
+def preload_models():
+    """Optionally warm up all models at startup to avoid first-reply latency."""
+    for lang in MODEL_MAP:
+        _get_model(lang)
+
+
+def _synthesize_and_play(text: str, lang: str):
+    """Synthesize `text` with the MMS model for `lang` and play it (blocking)."""
+    model, tokenizer = _get_model(lang)
+    inputs = tokenizer(text, return_tensors="pt")
+    with torch.no_grad():
+        waveform = model(**inputs).waveform[0].cpu().numpy()
+
+    sample_rate = model.config.sampling_rate  # MMS models are 16 kHz
+    pcm = np.clip(waveform, -1.0, 1.0)
+    pcm = (pcm * 32767).astype(np.int16)
+
+    sd.play(pcm, samplerate=sample_rate)
+    sd.wait()  # block until playback finishes (runs off the event loop, see speak())
+
+
+async def speak(text: str):
     """
-    Synthesizes speech and plays it directly via sounddevice, bypassing the disk entirely.
+    Synthesize `text` in the detected language and play it aloud.
+    The heavy synthesis + blocking playback run in a worker thread so they
+    never stall the FastAPI event loop.
     """
-    voice = get_piper_voice()
+    text = (text or "").strip()
+    if not text:
+        return
 
-    # In a "low" quality Piper model, the sample rate is usually 22050
-    sample_rate = voice.config.sample_rate
+    lang = detect_language(text)
+    print(f"[TTS] lang={lang} model={MODEL_MAP.get(lang, MODEL_MAP[DEFAULT_LANG])} :: {text[:60]}...")
 
-    print(f"Synthesizing audio stream for: {text[:50]}...")
-
-    # synthesize_stream_raw returns an iterator of raw int16 PCM bytes
-    audio_stream = voice.synthesize_stream_raw(text)
-
-    # Collect all chunks to apply the robotic numpy effect over the whole phrase
-    # (Doing it chunk-by-chunk with resampling can cause clicking artifacts at boundaries)
-    raw_bytes = b"".join(chunk for chunk in audio_stream)
-
-    # Convert bytes to numpy array
-    audio_array = np.frombuffer(raw_bytes, dtype=np.int16)
-
-    # Apply "EMO Bot" Pitch/Speed Shift Texture
-    processed_array = apply_robotic_texture(audio_array, sample_rate)
-
-    # Play directly to the default audio output device using sounddevice
-    # Note: Because we resampled the data but tell sounddevice to play it at the
-    # ORIGINAL sample_rate, it plays faster and higher-pitched!
-    print("Playing audio...")
-    sd.play(processed_array, samplerate=sample_rate)
-    sd.wait()  # Wait until the audio is finished playing
-    print("Playback finished.")
+    try:
+        await asyncio.to_thread(_synthesize_and_play, text, lang)
+        print("[TTS] Playback finished.")
+    except Exception as e:
+        print(f"[TTS] Error during synthesis/playback: {e}")
 
 
-# Optional: async wrapper if we need it for FastAPI compatibility later
-async def generate_audio(text: str, output_filepath: str):
+async def generate_audio(text: str, output_filepath: str = ""):
     """
-    Legacy compatible function just in case app.py still calls this.
-    Instead of writing to output_filepath, it just uses direct playback.
-    We ignore the output_filepath!
+    Entrypoint called by app.py. `output_filepath` is ignored — audio is played
+    directly on the host rather than written to disk.
     """
-    speak(text)
+    await speak(text)
 
 
-# To do :
-# 1. Implement proper error handling and logging as needed for production use.
-# 2. Update the tts service api with the pretrained model and ruunning it in memory for sub-200ms latency.
-# 3. Ensure that the model files are included in the deployment package and that the paths are correct.
-# 4. Update the notebook for new RND related to finetuining the model for the emo bot voice and the new audio processing pipeline.
-# 5. Test the new TTS service with various inputs to ensure it meets the latency and quality requirements.
+# ---------------------------------------------------------------------------
+# Streaming helpers for the real-time WebSocket loop.
+# Instead of playing audio on the backend, we synthesize raw PCM and hand it to
+# the frontend to play (so the browser's echo cancellation can work and the user
+# can interrupt).
+# ---------------------------------------------------------------------------
+
+# Sentence boundaries: Latin (.!?) plus the Devanagari danda (।).
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?।])\s+")
+
+
+def split_sentences(text: str):
+    """Split text into sentence-sized chunks for incremental synthesis."""
+    text = (text or "").strip()
+    if not text:
+        return []
+    parts = [p.strip() for p in _SENTENCE_SPLIT_RE.split(text) if p.strip()]
+    return parts or [text]
+
+
+# ---------------------------------------------------------------------------
+# Emotion -> prosody.  MMS is a flat single-speaker model, so we make it
+# emotional by (a) tuning its own intonation params and (b) light DSP:
+#   - noise_scale / noise_scale_duration : how animated the model's intonation is
+#   - resample factor : >1 = faster + higher/brighter, <1 = slower + lower/heavier
+#                       (pitch and tempo move together, like real emotional speech)
+#   - gain : loudness / energy
+# Keep the numbers subtle so it stays natural (no chipmunk).
+# ---------------------------------------------------------------------------
+EMOTION_PROSODY = {
+    "neutral":   {"resample": 1.00, "noise": 0.667, "ndur": 0.80, "gain": 1.00},
+    "happy":     {"resample": 1.06, "noise": 0.85,  "ndur": 0.90, "gain": 1.06},
+    "excited":   {"resample": 1.09, "noise": 0.95,  "ndur": 1.00, "gain": 1.12},
+    "surprised": {"resample": 1.10, "noise": 0.95,  "ndur": 1.00, "gain": 1.12},
+    "curious":   {"resample": 1.03, "noise": 0.85,  "ndur": 0.90, "gain": 1.03},
+    "angry":     {"resample": 1.04, "noise": 0.80,  "ndur": 0.85, "gain": 1.20},
+    "sad":       {"resample": 0.93, "noise": 0.55,  "ndur": 0.70, "gain": 0.85},
+    "thinking":  {"resample": 0.97, "noise": 0.60,  "ndur": 0.80, "gain": 0.95},
+}
+
+
+# ---------------------------------------------------------------------------
+# Voice styles.  MMS has one speaker per language, so "different voices" are
+# pitch/character variations (plus an optional robotic ring-mod). A style sets a
+# BASE pitch/tempo/energy that the per-emotion prosody then modulates around.
+# ---------------------------------------------------------------------------
+VOICE_STYLES = {
+    "milo":   {"label": "Milo (default)", "pitch": 1.00, "gain": 1.00, "noise_bias": 0.00, "robotic": 0.0},
+    "deep":   {"label": "Deep",           "pitch": 0.90, "gain": 1.02, "noise_bias": -0.05, "robotic": 0.0},
+    "bright": {"label": "Bright",         "pitch": 1.12, "gain": 1.00, "noise_bias": 0.05, "robotic": 0.0},
+    "calm":   {"label": "Calm",           "pitch": 0.96, "gain": 0.96, "noise_bias": -0.08, "robotic": 0.0},
+    "robo":   {"label": "Robo",           "pitch": 1.04, "gain": 1.00, "noise_bias": 0.00, "robotic": 0.5},
+}
+DEFAULT_STYLE = "milo"
+
+
+def list_voice_styles():
+    """Return [{id, label}] for the UI dropdown."""
+    return [{"id": k, "label": v["label"]} for k, v in VOICE_STYLES.items()]
+
+
+def synthesize_pcm(text: str, lang: str = None, emotion: str = "neutral", style: str = DEFAULT_STYLE):
+    """
+    Synthesize `text` with the chosen voice style + emotion-driven prosody, and
+    return (pcm_int16_bytes, sample_rate) WITHOUT playing.
+    """
+    text = (text or "").strip()
+    if not text:
+        return b"", 0
+
+    if lang is None:
+        lang = detect_language(text)
+
+    prosody = EMOTION_PROSODY.get((emotion or "neutral").lower(), EMOTION_PROSODY["neutral"])
+    voice = VOICE_STYLES.get((style or DEFAULT_STYLE).lower(), VOICE_STYLES[DEFAULT_STYLE])
+
+    model, tokenizer = _get_model(lang)
+    # Model expressiveness = emotion animation, nudged by the voice style.
+    model.noise_scale = max(0.1, prosody["noise"] + voice["noise_bias"])
+    model.noise_scale_duration = prosody["ndur"]
+
+    inputs = tokenizer(text, return_tensors="pt")
+    with torch.no_grad():
+        waveform = model(**inputs).waveform[0].cpu().numpy().astype(np.float32)
+
+    sample_rate = model.config.sampling_rate
+
+    # Pitch + tempo: emotion factor combined with the style's base pitch.
+    factor = prosody["resample"] * voice["pitch"]
+    if abs(factor - 1.0) > 1e-3:
+        new_len = max(1, int(len(waveform) / factor))
+        waveform = signal.resample(waveform, new_len).astype(np.float32)
+
+    # Optional robotic timbre (subtle ring modulation).
+    if voice["robotic"] > 0:
+        t = np.arange(len(waveform)) / sample_rate
+        carrier = np.sin(2 * np.pi * 75 * t).astype(np.float32)  # 75 Hz buzz
+        waveform = waveform * (1.0 - voice["robotic"] + voice["robotic"] * (0.5 + 0.5 * carrier))
+
+    waveform = waveform * (prosody["gain"] * voice["gain"])
+
+    pcm = np.clip(waveform, -1.0, 1.0)
+    pcm = (pcm * 32767).astype(np.int16)
+    return pcm.tobytes(), sample_rate
